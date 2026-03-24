@@ -531,6 +531,7 @@ class PedmPolicyUsageReportCommand(base.ArgparseCommand):
     def execute(self, context: KeeperParams, **kwargs) -> Any:
         base.require_login(context)
         plugin = context.pedm_plugin
+        assert context.auth is not None
         auth = context.auth
 
         is_summary = kwargs.get('summary') is True

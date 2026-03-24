@@ -1097,7 +1097,7 @@ class RecordGetCommand(base.ArgparseCommand):
         """Execute the get command based on the provided parameters."""
         self._validate_context(context)
         vault = context.vault
-        
+
         uid = kwargs.get('uid')
         output_format = kwargs.get('format', 'detail')
         unmask = kwargs.get('unmask', False)
@@ -1795,7 +1795,7 @@ class RecordSearchCommand(base.ArgparseCommand):
             logger.warning(f"Invalid categories specified: {requested_categories - valid_categories}. "
                           f"Using valid categories: {requested_categories & valid_categories}")
             config['categories'] = ''.join(requested_categories & valid_categories)
-        
+
         search_results = {}
         total_found = 0
         max_results_per_category = 1000
@@ -1826,13 +1826,13 @@ class RecordSearchCommand(base.ArgparseCommand):
             except Exception as e:
                 logger.error(f"Error searching teams: {e}")
                 search_results['teams'] = []
-        
+
         if total_found == 0:
             if 't' in config['categories']:
                 logger.error("No teams found matching the pattern or you are not a member of the requested team")
             categories_str = ', '.join(requested_categories)
             raise base.CommandError(f"No objects found in any of the requested categories: {categories_str}")
-        
+
         self._display_all_search_results(search_results, config, context, vault)
 
     def _display_all_search_results(self, search_results: Dict, config: Dict, context: KeeperParams, vault: vault_online.VaultOnline):

@@ -7,7 +7,7 @@ from typing import Dict, Optional, Any, Type
 from keepersdk.authentication import configuration, endpoint, keeper_auth
 from keepersdk.enterprise import sqlite_enterprise_storage, enterprise_types, enterprise_loader
 from keepersdk.vault import vault_online, sqlite_storage
-from keepersdk.plugins.pedm import admin_plugin
+from keepersdk.plugins.pedm import admin_plugin, agent_plugin
 
 
 class KeeperConfig(configuration.IConfigurationStorage):
@@ -161,6 +161,7 @@ class KeeperParams:
         self._enterprise_loader: Optional[enterprise_loader.EnterpriseLoader] = None
 
         self._pedm_plugin: Optional[admin_plugin.PedmPlugin] = None
+        self._agent_plugin: Optional[agent_plugin.PedmAgentPlugin] = None
 
     @property
     def keeper_config(self) -> KeeperConfig:
@@ -176,6 +177,10 @@ class KeeperParams:
 
     def clear_session(self) -> None:
         self.current_folder = None
+
+        if self._agent_plugin:
+            self._agent_plugin.close()
+            self._agent_plugin = None
 
         if self._pedm_plugin:
             self._pedm_plugin.close()
@@ -225,6 +230,16 @@ class KeeperParams:
     def enterprise_loader(self) -> enterprise_types.IEnterpriseLoader:
         assert self._enterprise_loader is not None
         return self._enterprise_loader
+
+    @property
+    def pedm_agent_plugin(self) -> Optional[agent_plugin.PedmAgentPlugin]:
+        return self._agent_plugin
+
+    @pedm_agent_plugin.setter
+    def pedm_agent_plugin(self, value: Optional[agent_plugin.PedmAgentPlugin]) -> None:
+        if self._agent_plugin is not None:
+            self._agent_plugin.close()
+        self._agent_plugin = value
 
     @property
     def pedm_plugin(self) -> admin_plugin.PedmPlugin:

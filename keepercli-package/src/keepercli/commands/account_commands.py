@@ -5,7 +5,7 @@ import re
 from typing import Tuple, Optional, List, Any, Dict
 
 from keepersdk import crypto, utils, errors
-from keepersdk.authentication import keeper_auth  
+from keepersdk.authentication import keeper_auth
 from keepersdk.proto import AccountSummary_pb2, APIRequest_pb2, enterprise_pb2
 from keepersdk.vault import vault_online
 from . import base
@@ -297,10 +297,10 @@ class WhoamiCommand(base.ArgparseCommand):
 
 class ResetPasswordCommand(base.ArgparseCommand):
     """Command for resetting master password using LoginAPI."""
-    
+
     def __init__(self):
         parser = argparse.ArgumentParser(
-            prog='reset-password', 
+            prog='reset-password',
             description='Reset master password for Keeper account'
         )
         parser.add_argument(
@@ -325,42 +325,42 @@ class ResetPasswordCommand(base.ArgparseCommand):
 
     def execute(self, context: params.KeeperParams, **kwargs):
         """Execute the password reset command."""
-        
+
         if not self._validate_authentication(context):
             return
-        
+
         auth = context.auth
         is_sso_user = self._check_sso_user(auth)
         if is_sso_user and not self._check_sso_privileges(auth):
             logger.warning(RESET_PASSWORD_NO_PRIVILEGE)
             return
-            
+
         current_salt = self._get_current_salt(auth, is_sso_user)
-        
+
         if self._handle_sso_deletion(kwargs, auth, is_sso_user, current_salt):
             return
-        
+
         try:
             current_password = kwargs.get('current_password')
             new_password = kwargs.get('new_password')
-            
+
             self._display_changing_message(auth, is_sso_user, current_salt)
-            
+
             if current_password and new_password:
                 self._change_password_non_interactive(context, current_password, new_password, is_sso_user, current_salt)
             else:
                 self._change_password_interactive(context)
-                
+
         except Exception as e:
             logger.error(RESET_PASSWORD_ERROR.format(str(e)))
-    
+
     def _validate_authentication(self, context: params.KeeperParams) -> bool:
         """Validate that user is authenticated."""
         if not context.auth:
             logger.warning(RESET_PASSWORD_NOT_LOGGED_IN)
             return False
         return True
-    
+
     def _check_sso_user(self, auth: keeper_auth.KeeperAuth) -> bool:
         """Check if user is an SSO user."""
         try:
@@ -368,7 +368,7 @@ class ResetPasswordCommand(base.ArgparseCommand):
             return acct_summary.settings.ssoUser
         except Exception:
             return False
-    
+
     def _check_sso_privileges(self, auth: keeper_auth.KeeperAuth) -> bool:
         """Check if SSO user has privilege to change alternate passwords."""
         try:
@@ -379,7 +379,7 @@ class ResetPasswordCommand(base.ArgparseCommand):
             return False
         except Exception:
             return False
-    
+
     def _get_current_salt(self, auth: keeper_auth.KeeperAuth, is_sso_user: bool):
         """Get current salt and iterations."""
         try:
@@ -393,12 +393,12 @@ class ResetPasswordCommand(base.ArgparseCommand):
                 return None
             else:
                 raise kae
-    
+
     def _handle_sso_deletion(self, kwargs: Dict, auth: keeper_auth.KeeperAuth, is_sso_user: bool, current_salt) -> bool:
         """Handle SSO password deletion request."""
         if not kwargs.get('delete_sso'):
             return False
-            
+
         if is_sso_user:
             logger.info(RESET_PASSWORD_SSO_DELETING.format(auth.auth_context.username))
             if current_salt:
@@ -411,7 +411,7 @@ class ResetPasswordCommand(base.ArgparseCommand):
         else:
             logger.warning(RESET_PASSWORD_NOT_SSO_ACCOUNT.format(auth.auth_context.username))
         return True
-    
+
     def _display_changing_message(self, auth: keeper_auth.KeeperAuth, is_sso_user: bool, current_salt):
         """Display appropriate changing password message."""
         username = auth.auth_context.username
@@ -420,7 +420,7 @@ class ResetPasswordCommand(base.ArgparseCommand):
             logger.info(RESET_PASSWORD_SSO_CHANGING.format(action, username))
         else:
             logger.info(RESET_PASSWORD_CHANGING.format(username))
-    
+
     def _change_password_non_interactive(self, context: params.KeeperParams, current_password: str, new_password: str, is_sso_user: bool, current_salt):
         """Change password using provided arguments."""
         auth = context.auth
@@ -429,19 +429,19 @@ class ResetPasswordCommand(base.ArgparseCommand):
             return
         elif not current_salt:
             current_password = ''
-            
+
         if not self._validate_password_rules(auth, new_password):
             return
-            
+
         self._perform_breachwatch_scan(context.vault, new_password)
-        
+
         if is_sso_user:
             self._change_sso_password(auth, new_password, current_salt)
         else:
             self._change_regular_password(auth, new_password, current_salt)
-            
+
         self._update_context_password(context, new_password)
-    
+
     def _change_password_interactive(self, context: params.KeeperParams):
         """Change password using interactive prompts."""
         new_password = login.LoginAPI.change_master_password(context.auth)
@@ -450,125 +450,125 @@ class ResetPasswordCommand(base.ArgparseCommand):
             self._update_context_password(context, new_password)
         else:
             logger.warning(RESET_PASSWORD_CANCELLED)
-    
+
     def _update_context_password(self, context: params.KeeperParams, new_password: str):
         """Update context with new password."""
         context.password = new_password
-    
+
     def _validate_current_password_with_salt(self, current_password: str, current_salt, auth: keeper_auth.KeeperAuth) -> bool:
         """Validate the current password using provided salt."""
         try:
             auth_hash = crypto.derive_keyhash_v1(current_password, current_salt.salt, current_salt.iterations)
-            
+
             rq = APIRequest_pb2.MasterPasswordReentryRequest()
             rq.pbkdf2Password = utils.base64_url_encode(auth_hash)
             rq.action = APIRequest_pb2.UNMASK
-            
+
             rs = auth.execute_auth_rest(
                 'authentication/validate_master_password',
                 rq,
                 response_type=APIRequest_pb2.MasterPasswordReentryResponse,
                 payload_version=1
             )
-            
+
             if rs.status != APIRequest_pb2.MP_SUCCESS:
                 logger.warning(RESET_PASSWORD_CURRENT_INCORRECT)
                 return False
-                
+
             return True
-                
+
         except Exception:
             logger.warning(RESET_PASSWORD_CURRENT_INCORRECT)
             return False
-    
+
     def _validate_password_rules(self, auth: keeper_auth.KeeperAuth, new_password: str) -> bool:
         """Validate new password against domain rules."""
         try:
             rules_rq = enterprise_pb2.DomainPasswordRulesRequest()
             rules_rq.username = auth.auth_context.username
-            
+
             rules_rs = auth.execute_auth_rest(
                 'authentication/get_domain_password_rules',
                 rules_rq,
                 response_type=APIRequest_pb2.NewUserMinimumParams
             )
-            
+
             failed_rules = []
             for i in range(len(rules_rs.passwordMatchRegex)):
                 rule = rules_rs.passwordMatchRegex[i]
                 is_match = re.match(rule, new_password)
                 if not is_match:
                     failed_rules.append(rules_rs.passwordMatchDescription[i])
-            
+
             if failed_rules:
                 logger.warning('Password rules:\n%s', '\n'.join((f'  {x}' for x in failed_rules)))
                 return False
-                
+
             return True
-            
+
         except Exception:
             return True
-    
+
     def _change_sso_password(self, auth: keeper_auth.KeeperAuth, new_password: str, current_salt):
         """Change SSO user alternate password."""
         iterations = current_salt.iterations if current_salt else constants.PBKDF2_ITERATIONS
         iterations = max(iterations, constants.PBKDF2_ITERATIONS)
-        
+
         auth_salt = os.urandom(16)
-        
+
         ap_rq = APIRequest_pb2.UserAuthRequest()
         ap_rq.uid = current_salt.uid if current_salt else os.urandom(16)
         ap_rq.salt = auth_salt
         ap_rq.iterations = iterations
         ap_rq.authHash = crypto.derive_keyhash_v1(new_password, auth_salt, iterations)
-        
+
         key = crypto.derive_keyhash_v2('data_key', new_password, auth_salt, iterations)
         ap_rq.encryptedDataKey = crypto.encrypt_aes_v2(auth.auth_context.data_key, key)
         ap_rq.encryptedClientKey = crypto.encrypt_aes_v2(auth.auth_context.client_key, key)
-        
+
         ap_rq.loginType = APIRequest_pb2.ALTERNATE
         ap_rq.name = current_salt.name if current_salt else 'alternate'
-        
+
         auth.execute_auth_rest('authentication/set_v2_alternate_password', ap_rq)
         action = "changed" if current_salt else "set"
         logger.info(RESET_PASSWORD_SSO_CHANGED.format(action))
-    
+
     def _change_regular_password(self, auth: keeper_auth.KeeperAuth, new_password: str, current_salt):
         """Change regular user master password."""
         iterations = current_salt.iterations if current_salt else constants.PBKDF2_ITERATIONS
         iterations = max(iterations, constants.PBKDF2_ITERATIONS)
-        
+
         auth_salt = os.urandom(16)
         auth_verifier = utils.create_auth_verifier(new_password, auth_salt, iterations)
-        
+
         data_salt = os.urandom(16)
         encryption_params = utils.create_encryption_params(
             new_password, data_salt, iterations, auth.auth_context.data_key
         )
-        
+
         mp_rq = {
             'command': 'change_master_password',
             'auth_verifier': utils.base64_url_encode(auth_verifier),
             'encryption_params': utils.base64_url_encode(encryption_params)
         }
-        
+
         auth.execute_auth_command(mp_rq)
         logger.info(RESET_PASSWORD_SUCCESS)
-    
+
     def _perform_breachwatch_scan(self, vault: vault_online.VaultOnline, password: str):
         """Perform BreachWatch scan on the new password."""
         try:
             if vault and vault.breach_watch_plugin():
                 logger.info(RESET_PASSWORD_BREACHWATCH_SCAN)
-                
+
                 breach_watch = vault.breach_watch_plugin().breach_watch
                 scan_results = breach_watch.scan_passwords([password])
-                
+
                 if scan_results:
                     for result in scan_results:
                         status = 'WEAK' if result[1].breachDetected else 'GOOD'
                         logger.info(RESET_PASSWORD_BREACHWATCH_RESULT.format(status))
-                        
+
                         if result[1].euid:
                             breach_watch.delete_euids([result[1].euid])
         except Exception:

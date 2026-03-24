@@ -156,7 +156,7 @@ class ArgparseCommand(ICliCommand, abc.ABC):
 
     def _validate_strict_options(self, arg_list: List, valid_options: Set) -> None:
         """Validate that all option-like arguments are recognized.
-        
+
         Raises ParseError if:
         - An abbreviated long option is used (e.g., --len for --length)
         - An unrecognized option is used (e.g., --leo, --xyz)
@@ -164,11 +164,11 @@ class ArgparseCommand(ICliCommand, abc.ABC):
         """
         long_options = {opt for opt in valid_options if opt.startswith('--')}
         short_options = {opt for opt in valid_options if opt.startswith('-') and not opt.startswith('--')}
-        
+
         for arg in arg_list:
             if arg.startswith('--'):
                 opt_name = arg.split('=')[0] if '=' in arg else arg
-                
+
                 if opt_name not in long_options:
                     matches = [opt for opt in long_options if opt.startswith(opt_name)]
                     if matches:
@@ -177,23 +177,23 @@ class ArgparseCommand(ICliCommand, abc.ABC):
                         )
                     else:
                         raise ParseError(f'unrecognized argument: {arg}')
-            
+
             elif arg.startswith('-') and len(arg) > 1:
-                
+
                 if arg[1].isdigit() or (arg[1] == '.' and len(arg) > 2):
                     continue
-                
+
                 opt_part = arg.split('=')[0] if '=' in arg else arg
-                
+
                 if opt_part in short_options:
                     continue
-                
+
                 matched = False
                 for valid_opt in short_options:
                     if opt_part.startswith(valid_opt):
                         matched = True
                         break
-                
+
                 if not matched:
                     raise ParseError(f'unrecognized argument: {arg}')
 
@@ -204,13 +204,13 @@ class ArgparseCommand(ICliCommand, abc.ABC):
         parser = self.get_parser()
         try:
             arg_list = shlex.split(args)
-            
+
             valid_options = self._get_all_option_strings(parser)
             self._validate_strict_options(arg_list, valid_options)
-            
+
             opts, extra_args = parser.parse_known_args(arg_list)
             if extra_args:
-                
+
                 for extra in extra_args:
                     if extra.startswith('-') and len(extra) > 1 and not extra[1].isdigit():
                         raise ParseError(f'unrecognized argument: {extra}')

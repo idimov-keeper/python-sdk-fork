@@ -423,18 +423,18 @@ class TeamApproveCommand(base.ArgparseCommand):
                                         help='disable view/copy passwords')
         parser.add_argument('--dry-run', dest='dry_run', action='store_true',
                                         help='Report on run approval commands only. Do not run.')
-    
+
     def execute(self, context: KeeperParams, **kwargs) -> None:
         self._validate_vault(context)
-        
+
         approve_teams, approve_users = self._determine_approval_flags(kwargs)
         teams = self._build_teams_lookup(context.enterprise_data)
         active_users = self._build_active_users_lookup(context.enterprise_data)
-        
+
         request_batch = []
         added_team_keys = {}
         added_teams = {}
-        
+
         if approve_teams:
             team_requests, team_keys, new_teams = self._build_team_approval_requests(
                 context, kwargs, teams
@@ -443,19 +443,19 @@ class TeamApproveCommand(base.ArgparseCommand):
             added_team_keys.update(team_keys)
             added_teams.update(new_teams)
             teams.update(new_teams)
-        
+
         if approve_users:
             user_requests = self._build_user_approval_requests(
                 context, teams, added_teams, added_team_keys, active_users
             )
             request_batch.extend(user_requests)
-        
+
         if request_batch:
             if kwargs.get('dry_run'):
                 self._generate_dry_run_report(request_batch, teams, active_users, kwargs)
             else:
                 self._execute_batch_and_report(context, request_batch)
-    
+
     def _determine_approval_flags(self, kwargs: Dict[str, Any]) -> Tuple[bool, bool]:
         """Determine which approval types to process based on kwargs."""
         approve_teams = True
@@ -464,19 +464,19 @@ class TeamApproveCommand(base.ArgparseCommand):
             approve_teams = kwargs.get('team', False)
             approve_users = kwargs.get('user', False)
         return approve_teams, approve_users
-    
+
     def _build_teams_lookup(self, enterprise_data) -> Dict[str, Any]:
         """Build a dictionary mapping team_uid to team objects."""
         return {team.team_uid: team for team in enterprise_data.teams.get_all_entities()}
-    
+
     def _build_active_users_lookup(self, enterprise_data) -> Dict[int, str]:
         """Build a dictionary mapping user_id to username for active users."""
         return {
-            x.enterprise_user_id: x.username 
-            for x in enterprise_data.users.get_all_entities() 
+            x.enterprise_user_id: x.username
+            for x in enterprise_data.users.get_all_entities()
             if x.status == 'active' and x.lock == 0
         }
-    
+
     def _build_team_approval_requests(
         self, context: KeeperParams, kwargs: Dict[str, Any], teams: Dict[str, Any]
     ) -> Tuple[List[Dict[str, Any]], Dict[str, bytes], Dict[str, Any]]:
@@ -485,35 +485,35 @@ class TeamApproveCommand(base.ArgparseCommand):
         added_team_keys = {}
         added_teams = {}
         enterprise_data = context.enterprise_data
-        
+
         queued_teams = enterprise_data.queued_teams.get_all_entities()
         if not queued_teams:
             return request_batch, added_team_keys, added_teams
-        
+
         tree_key = enterprise_data.enterprise_info.tree_key
         data_key = context.auth.auth_context.data_key
         forbid_rsa = context.auth.auth_context.forbid_rsa
-        
+
         for queued_team in queued_teams:
             team_uid = queued_team.team_uid
             team_key = utils.generate_aes_key()
             added_team_keys[team_uid] = team_key
             added_teams[team_uid] = queued_team
-            
+
             request = self._create_team_add_request(
                 queued_team, team_key, tree_key, data_key, forbid_rsa, kwargs
             )
             request_batch.append(request)
-        
+
         return request_batch, added_team_keys, added_teams
-    
+
     def _create_team_add_request(
-        self, queued_team, team_key: bytes, tree_key: bytes, 
+        self, queued_team, team_key: bytes, tree_key: bytes,
         data_key: bytes, forbid_rsa: bool, kwargs: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Create a single team_add request with all required encryption."""
         encrypted_team_key = crypto.encrypt_aes_v1(team_key, data_key)
-        
+
         request = {
             'command': 'team_add',
             'team_uid': queued_team.team_uid,
@@ -526,14 +526,14 @@ class TeamApproveCommand(base.ArgparseCommand):
             'encrypted_team_key': utils.base64_url_encode(crypto.encrypt_aes_v2(team_key, tree_key)),
             'manage_only': True
         }
-        
+
         ec_private_key, ec_public_key = crypto.generate_ec_key()
         encrypted_ec_private_key = crypto.encrypt_aes_v2(
             crypto.unload_ec_private_key(ec_private_key), team_key
         )
         request['ecc_private_key'] = utils.base64_url_encode(encrypted_ec_private_key)
         request['ecc_public_key'] = utils.base64_url_encode(crypto.unload_ec_public_key(ec_public_key))
-        
+
         if not forbid_rsa:
             rsa_pri_key, rsa_pub_key = crypto.generate_rsa_key()
             encrypted_rsa_private_key = crypto.encrypt_aes_v1(
@@ -541,48 +541,48 @@ class TeamApproveCommand(base.ArgparseCommand):
             )
             request['private_key'] = utils.base64_url_encode(encrypted_rsa_private_key)
             request['public_key'] = utils.base64_url_encode(crypto.unload_rsa_public_key(rsa_pub_key))
-        
+
         return request
-    
+
     def _build_user_approval_requests(
-        self, context: KeeperParams, teams: Dict[str, Any], 
+        self, context: KeeperParams, teams: Dict[str, Any],
         added_teams: Dict[str, Any], added_team_keys: Dict[str, bytes],
         active_users: Dict[int, str]
     ) -> List[Dict[str, Any]]:
         """Build approval requests for queued team users."""
         enterprise_data = context.enterprise_data
         vault = context.vault
-        
+
         queued_team_users = enterprise_data.queued_team_users.get_all_links()
         if not queued_team_users or not enterprise_data.teams.get_all_entities() or not enterprise_data.users.get_all_entities():
             return []
-        
+
         team_keys, all_users = self._collect_team_keys_and_users(
             queued_team_users, teams, added_teams, active_users
         )
-        
+
         if not team_keys or not all_users:
             return []
-        
+
         self._load_team_and_user_keys(vault, team_keys, added_team_keys, all_users)
-        
+
         return self._create_user_add_requests(
             context, queued_team_users, team_keys, active_users
         )
-    
+
     def _collect_team_keys_and_users(
-        self, queued_team_users, teams: Dict[str, Any], 
+        self, queued_team_users, teams: Dict[str, Any],
         added_teams: Dict[str, Any], active_users: Dict[int, str]
     ) -> Tuple[Dict[str, Any], Set]:
         """Collect team UIDs that need keys loaded and all user emails."""
         team_keys = {}
         all_users = set()
-        
+
         for qtu in queued_team_users:
             team_uid = qtu.team_uid
             if team_uid not in teams and team_uid not in added_teams:
                 continue
-            
+
             email = active_users.get(qtu.enterprise_user_id)
             if email:
                 email = email.lower()
@@ -590,58 +590,58 @@ class TeamApproveCommand(base.ArgparseCommand):
                     team_keys[team_uid] = None
                 if email not in all_users:
                     all_users.add(email)
-        
+
         return team_keys, all_users
-    
+
     def _load_team_and_user_keys(
-        self, vault, team_keys: Dict[str, Any], 
+        self, vault, team_keys: Dict[str, Any],
         added_team_keys: Dict[str, bytes], all_users: Set
     ) -> None:
         """Load team keys and user public keys from the vault."""
         vault.keeper_auth.load_team_keys(list(team_keys.keys()))
-        
+
         for team_uid in team_keys.keys():
             team_key = vault.keeper_auth.get_team_keys(team_uid)
             if team_key and team_key.aes:
                 team_keys[team_uid] = team_key.aes
-        
+
         team_keys.update(added_team_keys)
         vault.keeper_auth.load_user_public_keys(list(all_users), False)
-    
+
     def _create_user_add_requests(
-        self, context: KeeperParams, queued_team_users, 
+        self, context: KeeperParams, queued_team_users,
         team_keys: Dict[str, bytes], active_users: Dict[int, str]
     ) -> List[Dict[str, Any]]:
         """Create user add requests for queued team users."""
         request_batch = []
         forbid_rsa = context.auth.auth_context.forbid_rsa
         vault = context.vault
-        
+
         for qtu in queued_team_users:
             team_uid = qtu.team_uid
             team_key = team_keys.get(team_uid)
             if not team_key:
                 continue
-            
+
             for u_id in qtu.get('users') or []:
                 username = active_users.get(u_id)
                 if not username:
                     continue
-                
+
                 keys = vault.keeper_auth.get_user_keys(username.lower())
                 if not keys:
                     continue
-                
+
                 request = self._create_single_user_add_request(
                     team_uid, u_id, team_key, keys, username, forbid_rsa
                 )
                 if request:
                     request_batch.append(request)
-        
+
         return request_batch
-    
+
     def _create_single_user_add_request(
-        self, team_uid: str, user_id: int, team_key: bytes, 
+        self, team_uid: str, user_id: int, team_key: bytes,
         keys, username: str, forbid_rsa: bool
     ) -> Optional[Dict[str, Any]]:
         """Create a single user add request with appropriate encryption."""
@@ -651,7 +651,7 @@ class TeamApproveCommand(base.ArgparseCommand):
             'enterprise_user_id': user_id,
             'user_type': 0,
         }
-        
+
         try:
             if forbid_rsa:
                 if not keys.ec:
@@ -669,23 +669,23 @@ class TeamApproveCommand(base.ArgparseCommand):
                 encrypted_team_key = crypto.encrypt_rsa(team_key, rsa_key)
                 request['team_key'] = utils.base64_url_encode(encrypted_team_key)
                 request['team_key_type'] = 'encrypted_by_public_key'
-            
+
             return request
         except Exception as e:
             logger.warning('Cannot approve user "%s" to team "%s": %s', username, team_uid, e)
             return None
-    
+
     def _execute_batch_and_report(self, context: KeeperParams, request_batch: List[Dict[str, Any]]) -> None:
         """Execute the batch request and report results."""
         vault = context.vault
         rs = vault.keeper_auth.execute_batch(request_batch)
-        
+
         if rs:
             stats = self._calculate_batch_stats(rs)
             self._log_batch_results(stats)
-        
+
         context.enterprise_loader.load(reset=True)
-    
+
     def _calculate_batch_stats(self, results: List[Dict[str, Any]]) -> Dict[str, int]:
         """Calculate success/failure statistics from batch results."""
         stats = {
@@ -694,7 +694,7 @@ class TeamApproveCommand(base.ArgparseCommand):
             'user_add_success': 0,
             'user_add_failure': 0
         }
-        
+
         for status in results:
             is_team = status['command'] == 'team_add'
             if 'result' in status:
@@ -708,9 +708,9 @@ class TeamApproveCommand(base.ArgparseCommand):
                         stats['team_add_failure'] += 1
                     else:
                         stats['user_add_failure'] += 1
-        
+
         return stats
-    
+
     def _log_batch_results(self, stats: Dict[str, int]) -> None:
         """Log batch execution results."""
         if stats['team_add_success'] or stats['team_add_failure']:
@@ -723,9 +723,9 @@ class TeamApproveCommand(base.ArgparseCommand):
                 'Team User approval: success %s; failure %s',
                 stats['user_add_success'], stats['user_add_failure']
             )
-    
+
     def _generate_dry_run_report(
-        self, request_batch: List[Dict[str, Any]], 
+        self, request_batch: List[Dict[str, Any]],
         teams: Dict[str, Any], active_users: Dict[int, str], kwargs: Dict[str, Any]
     ) -> None:
         """Generate and display dry-run report."""
@@ -735,21 +735,21 @@ class TeamApproveCommand(base.ArgparseCommand):
             team_name = team_uid
             if team_uid in teams:
                 team_name = teams[team_uid].name
-            
+
             username = ''
             action = 'Approve Team'
             if rq['command'] == 'team_enterprise_user_add':
                 action = 'Approve User'
                 user_id = rq['enterprise_user_id']
                 username = active_users.get(user_id, user_id)
-            
+
             table.append([action, team_name, username])
-        
+
         headers = ['Action', 'Team', 'User']
         report_utils.dump_report_data(
             table, headers, fmt=kwargs.get('format'), filename=kwargs.get('output')
         )
-    
+
     def _validate_vault(self, context: KeeperParams):
         """Validate that vault is initialized."""
         if not context.vault:

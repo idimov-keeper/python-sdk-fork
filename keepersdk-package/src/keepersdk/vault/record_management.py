@@ -315,7 +315,7 @@ def delete_vault_objects(vault: vault_online.VaultOnline,
                             obj['from_uid'] = folder.folder_uid
                             obj['from_type'] = 'user_folder' if folder.folder_type == 'user_folder' else 'shared_folder_folder'
                         objects.append(obj)
-            
+
             if not folder and not record:
                 record_cache = vault.vault_data._records
                 for record_uid, record_info in record_cache.items():

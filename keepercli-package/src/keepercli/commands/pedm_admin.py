@@ -181,6 +181,7 @@ class PedmCommand(base.GroupCommand):
         self.register_command(PedmCollectionCommand(), 'collection', 'c')
         self.register_command(PedmApprovalCommand(), 'approval')
         self.register_command(pedm_aram.PedmReportCommand(), 'report')
+        self.register_command(PedmBICommand(), 'bi')
 
 
 class PedmSyncDownCommand(base.ArgparseCommand):
@@ -1854,3 +1855,115 @@ class PedmApprovalStatusCommand(base.ArgparseCommand):
                 if not status.success:
                     if isinstance(status, admin_types.EntityStatus):
                         logger.warning(f'Failed to remove "{status.entity_uid}": {status.message}')
+
+
+class PedmBICommand(base.GroupCommand):
+    def __init__(self):
+        super().__init__('BI endpoint test')
+        self.register_command(PedmBIAgentCountCommand(), 'agent-count')
+        self.register_command(PedmBIDailyCountCommand(), 'daily-count')
+
+
+class PedmBIAgentCountCommand(base.ArgparseCommand):
+    def __init__(self):
+        parser = argparse.ArgumentParser(prog='agent-count', description='Retrieve active agent counts', parents=[base.report_output_parser])
+        parser.add_argument('--key', dest='key', action='store', required=True,
+                            help='BI API key')
+        parser.add_argument('--enterprise', dest='enterprise', action='append', required=True,
+                            help='Enterprise ID')
+        super().__init__(parser)
+
+    def execute(self, context: KeeperParams, **kwargs) -> None:
+        logger = api.get_logger()
+        enterprise_ids: List[int] = []
+        enterprise = kwargs.get('enterprise')
+        if not isinstance(enterprise, list):
+            enterprise = [enterprise]
+        for e in enterprise:
+            try:
+                enterprise_id = int(e)
+                enterprise_ids.append(enterprise_id)
+            except ValueError:
+                logger.warning(f'Invalid enterprise ID: {e}')
+
+        key = utils.base64_url_decode(kwargs.get('key'))
+        rq = pedm_pb2.GetActiveAgentCountRequest()
+        rq.enterpriseId.extend(enterprise_ids)
+        rs = context.auth.keeper_endpoint.execute_router_bi(key, 'active_agent_count', rq, response_type=pedm_pb2.GetActiveAgentCountResponse)
+        assert rs is not None
+
+        table = []
+        headers = ['enterprise_id', 'agent_count', 'message']
+        for success_rs in rs.agentCount:
+            table.append([success_rs.enterpriseId, success_rs.activeAgents, None])
+        for failed_rs in rs.failedCount:
+            table.append([failed_rs.enterpriseId, None, failed_rs.message])
+
+        fmt = kwargs.get('format')
+        if fmt != 'json':
+            headers = [report_utils.field_to_title(x) for x in headers]
+        return report_utils.dump_report_data(table, headers, fmt=fmt, filename=kwargs.get('output'))
+
+
+class PedmBIDailyCountCommand(base.ArgparseCommand):
+    def __init__(self):
+        parser = argparse.ArgumentParser(prog='daily-count', description='Retrieve daily counts', parents=[base.report_output_parser])
+        parser.add_argument('--key', dest='key', action='store', required=True,
+                            help='BI API key')
+        parser.add_argument('--enterprise', dest='enterprise', action='append', required=True,
+                            help='Enterprise ID')
+        period = parser.add_mutually_exclusive_group(required=True)
+        period.add_argument('--month', dest='month', action='store', help='Month YYYY-MM')
+        period.add_argument('--date-range', dest='date_range', action='store', help='YYYY-MM-DD:YYYY-MM-DD')
+        super().__init__(parser)
+
+    def execute(self, context: KeeperParams, **kwargs) -> None:
+        logger = api.get_logger()
+        enterprise_ids: List[int] = []
+        enterprise = kwargs.get('enterprise')
+        if not isinstance(enterprise, list):
+            enterprise = [enterprise]
+        for e in enterprise:
+            try:
+                enterprise_id = int(e)
+                enterprise_ids.append(enterprise_id)
+            except ValueError:
+                logger.warning(f'Invalid enterprise ID: {e}')
+
+        key = utils.base64_url_decode(kwargs.get('key'))
+        rq = pedm_pb2.GetAgentDailyCountRequest()
+        rq.enterpriseId.extend(enterprise_ids)
+
+        month = kwargs.get('month')
+        if month:
+            parsed_date = datetime.datetime.strptime(month, "%Y-%m")
+            rq.monthYear.month = parsed_date.month
+            rq.monthYear.year = parsed_date.year
+        else:
+            date_range = kwargs.get('date_range')
+            if date_range and isinstance(date_range, str):
+                comps = date_range.split(':')
+                if len(comps) == 2:
+                    date_start = datetime.datetime.strptime(comps[0], "%Y-%m-%d")
+                    date_end = datetime.datetime.strptime(comps[1], "%Y-%m-%d")
+                    rq.dateRange.start = int(date_start.timestamp() * 1000)
+                    rq.dateRange.end = int(date_end.timestamp() * 1000)
+                else:
+                    raise ValueError(f'Invalid date_range: {date_range}. Expected: YYYY-MM-DD:YYYY-MM-DD')
+            else:
+                raise ValueError(f'Neither month nor date_range has been provided')
+
+        rs = context.auth.keeper_endpoint.execute_router_bi(key, 'daily_agent_count', rq, response_type=pedm_pb2.GetAgentDailyCountResponse)
+        assert rs is not None
+
+        table = []
+        headers = ['enterprise_id', 'date', 'agent_count']
+        for ec in rs.enterpriseCounts:
+            enterprise_id = ec.enterpriseId
+            for count in ec.counts:
+                dt = datetime.datetime.fromtimestamp(count.date//1000, datetime.timezone.utc)
+                table.append([enterprise_id, dt.isoformat(), count.agentCount])
+        fmt = kwargs.get('format')
+        if fmt != 'json':
+            headers = [report_utils.field_to_title(x) for x in headers]
+        return report_utils.dump_report_data(table, headers, fmt=fmt, filename=kwargs.get('output'))

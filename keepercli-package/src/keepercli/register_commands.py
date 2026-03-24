@@ -14,6 +14,7 @@ def register_commands(commands: base.CliCommands, scopes: Optional[base.CommandS
     if not scopes or bool(scopes & base.CommandScope.Account):
         from .commands import account_commands
         from .biometric import BiometricCommand
+        from .commands import pedm_agent
         from .commands import account_commands, two_fa
         commands.register_command('server',
                                   base.GetterSetterCommand('server', 'Sets or displays current Keeper region'),
@@ -23,6 +24,7 @@ def register_commands(commands: base.CliCommands, scopes: Optional[base.CommandS
         commands.register_command('logout', account_commands.LogoutCommand(), base.CommandScope.Account)
         commands.register_command('this-device', account_commands.ThisDeviceCommand(), base.CommandScope.Account)
         commands.register_command('whoami', account_commands.WhoamiCommand(), base.CommandScope.Account)
+        commands.register_command('agent', pedm_agent.PedmAgentCommand(), base.CommandScope.Common)
         commands.register_command('reset-password', account_commands.ResetPasswordCommand(), base.CommandScope.Account)
         commands.register_command('2fa', two_fa.TwoFaCommand(), base.CommandScope.Account)
 
@@ -32,7 +34,7 @@ def register_commands(commands: base.CliCommands, scopes: Optional[base.CommandS
                                record_type, secrets_manager, shares, password_report, trash, record_file_report,
                                record_handling_commands, register, password_generate, verify_records,
                                shared_records_report, share_report)
-        
+
         commands.register_command('sync-down', vault.SyncDownCommand(), base.CommandScope.Vault, 'd')
         commands.register_command('cd', vault_folder.FolderCdCommand(), base.CommandScope.Vault)
         commands.register_command('ls', vault_folder.FolderListCommand(), base.CommandScope.Vault)
@@ -83,8 +85,8 @@ def register_commands(commands: base.CliCommands, scopes: Optional[base.CommandS
         commands.register_command('trash', trash.TrashCommand(), base.CommandScope.Vault)
         commands.register_command('verify-shared-folders', verify_records.VerifySharedFoldersCommand(), base.CommandScope.Vault)
         commands.register_command('verify-records', verify_records.VerifyRecordsCommand(), base.CommandScope.Vault)
-        commands.register_command('shared-records-report', shared_records_report.SharedRecordsReportCommand(), base.CommandScope.Vault) 
-        commands.register_command('share-report', share_report.ShareReportCommand(), base.CommandScope.Vault) 
+        commands.register_command('shared-records-report', shared_records_report.SharedRecordsReportCommand(), base.CommandScope.Vault)
+        commands.register_command('share-report', share_report.ShareReportCommand(), base.CommandScope.Vault)
 
 
     if not scopes or bool(scopes & base.CommandScope.Enterprise):
